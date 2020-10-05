@@ -7,11 +7,12 @@ print(binance.send_signed_request('GET', '/api/v3/account'))
 
 
 class Market:
-    def __init__(self, interval):
+    def __init__(self, coin):
         self.ma20ma50 = 0
-        self.interval = interval
         self.maxPrice = 0
+        self.coin = coin
 
+    # TODO: ma20, ma50이 아니여도 ㄱㅊ도록 수정하기
     def goldenCrossed(self, ma20, ma50):
         ret = False
         if self.ma20ma50 < 0 and ma20 - ma50 > 0:
@@ -29,7 +30,7 @@ class Market:
         index = []
 
         responses = binance.send_public_request(
-            '/api/v3/klines', {'symbol': 'BTCUSDT', 'interval': str(interval) + 'm', 'limit': numOfData})
+            '/api/v3/klines', {'symbol': self.coin, 'interval': str(interval) + 'm', 'limit': numOfData})
 
         for res in responses:
             time = datetime.fromtimestamp(res[0]/1000)
@@ -44,11 +45,9 @@ class Market:
         df = DataFrame(candleData, index=index)
         ma20 = df['close'].rolling(window=20).mean()
         ma50 = df['close'].rolling(window=50).mean()
-
+        # TODO 구매한 시점부터의 max price
         if hold:
-            closeList = list(map(to_numeric, df['close']))
-            closeList.append(self.maxPrice)
-            self.maxPrice = max(closeList)
+            self.maxPrice = max(self.maxPrice, to_numeric(df['close'][-1]))
         else:
             self.maxPrice = 0
         self.ma20ma50 = ma20-ma50
@@ -67,17 +66,18 @@ class User:
         # # place an order
         # if you see order response, then the parameters setting is correct
         # TODO: try except
+        # TODO: stop_loss 시도해보기
         params = {
             "symbol": coin,
             "side": "BUY",
-            "type": "STOP_LOSS",
+            "type": "MARKET",
             "quoteOrderQty": usdTradeAmount,
-            "stopPrice": stopPrice
         }
         response = binance.send_signed_request('POST', '/api/v3/order', params)
         # TODO
         # self.BTC = response['data']['BTC']
         print(response)
+        return response
 
     def sell(self, coin):
         # TODO: try except
@@ -85,21 +85,25 @@ class User:
             "symbol": coin,
             "side": "SELL",
             "type": "MARKET",
-            "quantity": self.BTC,
+            "quantity": self.BTC,  # TODO 수수료 제외하기
         }
         response = binance.send_signed_request('POST', '/api/v3/order', params)
         print(response)
 
 
 # ======== CONSTANT================
-USD_TRADE_AMOUNT = 10  # 10 dollar
+USD_TRADE_AMOUNT = 12  # 10 dollar
 INTERVAL = 5  # 5m
-DATA_NUM = 60
-ONE_HOUR_ROW = int(60/INTERVAL)
+DATA_NUM = 1000
 STOP_LOSS = 0.97
+ONE_HOUR_AGO_PRICE_PERCENTAGE = 1.05
+GOLDEN_CROSS_PRICE_PERCENTAGE = 1.02
+
 # ==========INIT====================
+ONE_HOUR_ROW = int(60/INTERVAL)
+
 user = User()
-market = Market(INTERVAL)
+market = Market('BTCUSDT')
 
 # while True:
 df = market.getData(DATA_NUM, INTERVAL, user.hold)
@@ -108,25 +112,29 @@ ma50 = df['close'].rolling(window=50).mean()
 ma120 = df['close'].rolling(window=120).mean()
 
 curClosePrice = df['close'][-1]
+print(df['close'])
 oneHourAgoPrice = df['close'][-ONE_HOUR_ROW]
-# 매수 알고리즘
+
+# # 매수
+# user.buy('BTCUSDT',12, float(curClosePrice) * STOP_LOSS)
+
+# 매수 알고리즘 ----------------------------------------------------------------------------------------------
 if market.goldenCrossed(ma20[-1], ma50[-1]) and user.hold == False:
-    goldenCross = (ma20[-1]+ma50[-1])/2
-    # 매수 (2)조건
-    if goldenCross > ma120 and curClosePrice > ma120:
-        # 매수 (1) 조건
-        if oneHourAgoPrice*1.05 > curClosePrice and goldenCross*1.02 > curClosePrice:
+    goldenCrossPrice = (ma20[-1]+ma50[-1])/2
+    # 매수 (2)조건 and
+    if goldenCrossPrice > ma120 and curClosePrice > ma120:
+        # 매수 (1) 조건 and
+        if oneHourAgoPrice*ONE_HOUR_AGO_PRICE_PERCENTAGE >= curClosePrice and goldenCrossPrice*GOLDEN_CROSS_PRICE_PERCENTAGE > curClosePrice:
             try:
                 user.buy('BTCUSDT', USD_TRADE_AMOUNT,
-                         curClosePrice * STOP_LOSS)
+                         float(curClosePrice) * STOP_LOSS)
                 user.hold = True
             except Exception as err:
                 print("Error!! cant buy :", err)
-
-# 매도 알고리즘
+# 매도 알고리즘-------------------------------------------------------------------------------------------------
 elif user.hold == True:
     # TODO: 매도조건 (1)??
     # 매도조건 (2),(3)
-    if market.maxPrice * 0.98 > curClosePrice or curClosePrice > ma20 * 1.2:
+    if market.maxPrice * 0.995 > curClosePrice or curClosePrice > ma20 * 1.2:
         # TODO: try except
         user.sell('BTCUSDT')

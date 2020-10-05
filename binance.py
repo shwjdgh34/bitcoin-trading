@@ -15,11 +15,9 @@ Because USER_DATA endpoints require signature:
 python spot.py
 ```
 """
-
 KEY = 'RVUEqZnMaltJXiDx4hD52GGWWrJNOxPiGArQoU6GCounSdlCTeR85IMlfqavTnfS'
 SECRET = 'Lrj8FMzlSy0E9TStzhZ2JfwUffs5ZKLbv7sqNVXdSVXmtzHSIs4TPsWYXwuGeJt7'
 BASE_URL = 'https://api.binance.com'
-
 ''' ======  begin of functions, you don't need to touch ====== '''
 
 
